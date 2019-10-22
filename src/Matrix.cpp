@@ -57,7 +57,7 @@ Matrix &Matrix::operator*(Matrix &b) {
     auto *res = new Matrix(dim, dim);
     res->name = "*";
     int r, c, k;
-//#pragma omp parallel for private(r, c, k) shared(res)
+#pragma omp parallel for private(r, c, k) shared(res)
     for (r = 0; r < dim; ++r)
         for (c = 0; c < dim; ++c)
             for (k = 0; k < dim; ++k)

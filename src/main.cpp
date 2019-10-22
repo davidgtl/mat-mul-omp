@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
     b.fill_rand(); //b.print();
 
     double t;
-#if false
+#if true
     //(a*b).print();
     t = omp_get_wtime();
     auto nc = a * b;
@@ -144,11 +144,13 @@ int main(int argc, char **argv) {
     //nc.print();
 #endif
 
+#if false
     t = omp_get_wtime();
     auto fc = mul_fox(a, b);
     t = omp_get_wtime() - t;
     printf("fox: %f\n", t);
     //fc.print();
+#endif
 
 #if false
     t = omp_get_wtime();
