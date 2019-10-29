@@ -1,0 +1,118 @@
+// problema producator consumator
+
+
+
+
+#include "stdafx.h"
+#include <omp.h>
+#include <stdio.h>
+#include <windows.h> 
+
+#define Nr      5
+
+int main ()  {
+
+int nthreads, tid;
+float datele[50];
+int c,p;
+omp_lock_t lockP, lockC;
+
+
+omp_init_lock(&lockP);
+omp_init_lock(&lockC);
+ omp_set_num_threads(10 );
+
+#pragma omp parallel shared(c,p, datele, nthreads, locka, lockb) private(tid)
+  {
+
+ 
+  tid = omp_get_thread_num();
+  #pragma omp master
+    {
+    nthreads = omp_get_num_threads();
+    printf("Number of threads = %d\n", nthreads);
+	p=0;
+	c=0;
+    }
+  printf("Thread %d starting...\n", tid);
+  #pragma omp barrier
+
+  #pragma omp sections nowait
+    {
+    #pragma omp section
+      {
+      printf("Thread %d producator. \n",tid);
+      omp_set_lock(&lockP);
+   
+     // omp_unset_lock(&lockP);
+     // omp_set_lock(&lockC);
+      p= p+1;
+	  
+	  while (p==c){
+		  //omp_unset_lock(&lockC);
+		  //omp_set_lock(&lockP);
+		  Sleep(1);
+		  // astepata eliberarea unui loc 
+		  
+	  }
+	  
+	  if (p > N)
+		  p=1;
+		// buffer circular pentru date 
+	  omp_unset_lock(&lockP);
+      omp_set_lock(&lockC);
+	  datele[p]=(float) tid ;
+	  printf("Thread %d scriu %d la pozitie %d \n",tid,datele[p],p);
+	  
+      omp_unset_lock(&lockC);
+      }
+
+    #pragma omp section
+      {
+      printf("Thread %d consumator. \n",tid);
+	  printf("Thread %d producator. \n",tid);
+      omp_set_lock(&lockP);
+   
+     // omp_unset_lock(&lockP);
+     // omp_set_lock(&lockC);
+      p= p+1;
+	  
+	  while (p==c){
+		  //omp_unset_lock(&lockC);
+		  //omp_set_lock(&lockP);
+		  Sleep(1);
+		  // astepata eliberarea unui loc 
+		  
+	  }
+	  
+	  if (p > N)
+		  p=1;
+		// buffer circular pentru date 
+	  omp_unset_lock(&lockP);
+      omp_set_lock(&lockC);
+	  datele[p]=(float) tid ;
+	  printf("Thread %d scriu %d la pozitie %d \n",tid,datele[p],p);
+	  
+      omp_unset_lock(&lockC);
+      omp_set_lock(&lockC);
+      
+      omp_unset_lock(&lockC);
+      omp_set_lock(&lockP);
+      c=c+1;
+	  while(c==p){
+		  omp_unset_lock(&lockP);
+		  omp_set_lock(&lockC);
+	  }
+      
+	  if (c>N)
+		  c=1;
+	  printf("THread %d citesc val= %d de la poz %d \n",tid,datele[c],c);
+
+      omp_unset_lock(&lockP);
+      }
+    }  
+  }  
+
+  return 0;
+}
+

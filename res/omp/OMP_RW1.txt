@@ -1,0 +1,236 @@
+
+Modelul implementat este "Replicated workers".
+
+Principiile de baza folosite sunt:
+
+- exista un numar fixat de workeri;
+- acestora li se dau sarcini spre executie;
+- saricinile se preiau dintr-un spatiu de sarcini (WorkPool) (ordinea de preluare este irelevanta, nu trebuie sa fie neaparat FIFO);
+- un worker poate genera noi task-uri, care se adauga in acelasi WorkPool, putand fi ales si executat de orice worker disponibil (chiar si cel care l-a adaugat);
+- workerii isi incheie activitatea daca sunt indeplinite doua conditii:
+	1. WorkPool-ul e gol (in caz contrar, ei aleg o noua sarcina din WorkPool);
+	2. Nici un worker nu mai prelucreaza vreo sarcina (in caz contrar, se verifica din nou WorkPool-ul, dupa un interval de timp aleator, pentr a vedea daca nu cumva s-au mai adaugat sarcini);
+
+#include <omp.h>
+#include <stdio.h>
+#include <conio.h>
+#include <time.h>
+#include <windows.h>
+
+#define STEP 1000					// pasul cu care se incrementeaza limita buclei de iteratie a sumei	
+#define MAX_TASKS 25				// numarul maxim de task-uri (marimea WorkPool-ului)
+#define NO_WORKERS 5				// numarul de workeri
+#define NO_INITIAL_TASKS 10			// numarul de task-uri initiale
+
+int workPool[MAX_TASKS + 1];		// WorkPool-ul (se indexeaza de la 1)
+int noOfTasks[NO_WORKERS + 1];		// numarul de task-uri efectuate, in final, de fiecare worker (se indexeaza de la 1)
+int nextTaskID;						// ID-ul urmatorului task ce va fi pus in WorkPool
+
+// initializarea WorkPool-ului (si a lui noOfTasks)
+void initializeWorkPool()
+{
+	int i;
+
+	for (i = 1; i <= NO_INITIAL_TASKS; i++)
+		workPool[i] = i;
+
+	for (i = NO_INITIAL_TASKS + 1; i <= MAX_TASKS; i++)
+		workPool[i] = 0;
+
+	for (i = 1; i <= NO_WORKERS + 1; i++)
+		noOfTasks[i] = 0;
+}
+
+// afisarea WorkPool-ului
+void printWorkPool()
+{
+	int i;
+
+	printf("%3s", "i: ");
+	for (i = 1; i <= MAX_TASKS; i++)
+		printf("%2d ", i);
+	printf("\n");
+
+	printf("%3s", "");
+	for (i = 1; i <= MAX_TASKS; i++)
+		printf("---");
+	printf("\n");
+	
+	printf("%3s", "t[i]:");
+	for (i = 1; i <= MAX_TASKS; i++)
+		printf("%2d ", workPool[i]);
+	printf("\n");
+}
+
+// returnarea primului indice nenul din WorkPool (daca exista; daca nu, se va returna 0)
+int getWork()
+{
+	int i, temp;
+
+	for (i = 1; i <= MAX_TASKS; i++)
+		if (workPool[i] > 0)
+		{
+			temp = workPool[i];
+			workPool[i] = 0;
+			return temp;
+		}
+	return 0;
+}
+
+// adaugarea unui nou indice in WorkPool, la prima pozitie cu valoare nula
+void putWork(int taskID)
+{
+	int i;
+
+	for (i = 1; i <= MAX_TASKS; i++)
+		if (workPool[i] == 0)
+		{
+			workPool[i] = taskID;
+			break;
+		}
+}
+
+// programul principal
+int main ()
+{
+	// initializarea WorkPool-ului
+
+	printf("Initializing work pool...\n");
+	initializeWorkPool();
+	
+	// afisarea starii initiale a WorkPool-ului
+
+	printf("Initial status of work pool:\n");
+	printWorkPool();
+
+	// variabile folosite in thread-uri
+
+	int threadID;					// ID-ul thread-ului (local)
+	int taskID;						// ID-ului task-ului preluat (local)
+	unsigned long i;				// iterator (local)
+	unsigned long result;			// rezultat (local)
+	int noExtraTasks;				// numarul de task-uri suplimentare generate de un thread (local)			
+	int extraTaskID;				// ID-ul task-ului suplimentar generat (local)
+	bool activeThreads[NO_WORKERS + 1];	// pentru fiecare thread, se indica daca este activ sau nu (global)
+	int readActiveThreads;			// numarul total de thread-uri active la un moment dat (local)
+
+	// initializari de variable
+	
+	// fiecare thread este la inceput setat ca fiind inactiv
+	for (int j = 1; j <= NO_WORKERS; j++)
+		activeThreads[j] = false;
+
+	// urmatorul task ce va fi asignat are indicele cu 1 mai mare decat numarul de task-uri initiale
+	// semantic, nu e corecta atribuirea, dar s-a facut asa pentru a permite o incrementare (++) la fiecare atribuire
+	nextTaskID = NO_INITIAL_TASKS;
+	
+	// initializarea seed-ului pentru generatorul de numere aleatoare
+	srand(time(NULL));
+
+	// lansarea thread-urilor ce reprezinta worker-ii
+
+	printf("Starting workers...\n");
+
+	// setarea numarului de thread-uri, astfel incat sa poata fi indexati de la 1
+	omp_set_num_threads(NO_WORKERS + 1);
+
+	// directiva OpenMP de paralelizare a codului
+	#pragma omp parallel shared(nextTaskID, activeThreads) private(threadID, taskID, extraTaskID, readActiveThreads, i) firstprivate(result, noExtraTasks)
+	{
+		// obtinerea ID-ului thread-ului
+		threadID = omp_get_thread_num();
+
+		// un worker se considera valid daca nu este master (pentru indexarea de la 1)
+		if (threadID > 0)
+		{
+			// numarul suplimentar de task-uri generate este egal cu ID-ul thread-ului (conventional)
+			noExtraTasks = threadID;
+
+			// bucla infinita, din care se iese cand nu mai exista nici un task in WorkPool si nici un thread activ
+			while (true)
+			{
+				// intarziere simulata, pentru un plus de verosimilitate
+				Sleep(rand() / 10);
+
+				// ID-ului task-ului se afla accesand mutual exclusiv WorkPool-ul
+				#pragma omp critical(workPoolAccess)
+				{
+					taskID = getWork();
+				}
+
+				// daca exista task in WorkPool, acesta se va prelucra
+				if (taskID > 0)
+				{
+					// se marcheaza thread-ul ca fiind activ
+					#pragma omp critical(activeThreadsAccess)
+					{
+						activeThreads[threadID] = true;
+					}
+					
+					printf("Worker: %d acquired task: %d\n", threadID, taskID);
+			
+					// intarziere simulata, pentru un plus de verosimilitate (depinde de ID-ul thread-ului)
+					Sleep(STEP * threadID);
+
+					// calculul sumei 1 + 2 + ... + taskID * STEP (sarcina efectiva a worker-ului)
+					result = 0;
+					for (i = 1; i <= taskID * STEP; i++)
+						result += i;
+
+					printf("Worker: %d finished task: %d (result = %lu)\n", threadID, taskID, result);
+
+					// incrementarea numarului de task-uri efectuate, aferente acestui thread
+					noOfTasks[threadID]++;
+				}
+				// daca nu exista task in WorkPool
+				else
+				{
+					// daca thread-ul mai are task-uri suplimentare de adaugat
+					if (noExtraTasks > 0)
+					{
+						// se adauga un nou task, prin incrementarea indicelui global
+						#pragma omp critical(workPoolAccess)
+						{
+							nextTaskID++;
+							extraTaskID = nextTaskID;
+							putWork(nextTaskID);
+						}
+						printf("Worker: %d added task: %d\n", threadID, extraTaskID);
+
+						// decrementarea numarului de task-uri suplimentare, aferente acestui thread
+						noExtraTasks--;
+					}
+					// daca thread-ul nu mai are task-uri suplimentare de adaugat
+					else
+					{
+						// se verifica daca mai exista thread-uri active
+						#pragma omp critical(activeThreadsAccess)
+						{
+							readActiveThreads = 0;
+							// se marcheaza acest thread ca fiind inactiv
+							activeThreads[threadID] = false;
+							// se numara cate thread-uri active exista
+							for (i = 1; i <= NO_WORKERS; i++)
+								if (activeThreads[i] == true)
+									readActiveThreads++;
+						}
+				
+						// daca numarul de thread-uri active e 0, se iese din bucla infinita (se termina thread-ul)
+						if (readActiveThreads == 0)
+							break;
+					}
+				}
+			}
+				
+			printf("Worker: %d finished working\n", threadID);
+		}
+	}
+	
+	// afisarea numarului de task-uri efectuat de fiecare worker
+	printf("\nThe number of tasks performed by each worker is:\n");
+	for (i = 1; i <= NO_WORKERS; i++)
+		printf("Worker: %d completed: %d tasks\n", i, noOfTasks[i]);
+
+	printf("\nPress any key to finish program...");
+	getch();
+}
